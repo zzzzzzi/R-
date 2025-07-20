@@ -1,0 +1,25 @@
+常规的seurat对象处理workflow
+seu <- NormalizeData(seu,normalization.method = "LogNormalize",scale.factor = 1e4) 
+seu <- FindVariableFeatures(seu)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu, features = VariableFeatures(object = seu))
+seu <- RunHarmony(seu, "orig.ident")
+#harmony去批次效应
+seu <- RunUMAP(seu,dims = 1:15, reduction = "harmony")
+seu <- FindNeighbors(seu, reduction = "harmony", dims = 1:15) 
+#这个resolution可调，越大亚群越多，建议反复调整
+seu <- FindClusters(seu, resolution = 0.05, algorithm = 1)
+
+#可视化每个亚群
+DimPlot(seu, reduction = "umap",cols = c("#A1A9D0","#F0988C","#B883D4","#FFBE7A","#FA7F6F","#2878B5","#96CCCB"),group.by = "RNA_snn_res.0.05",
+        split.by = "Patient", label = T,label.box = T)
+#找marker
+seu.markers <- FindAllMarkers(object = seu, only.pos = FALSE, min.pct = 0.25,thresh.use = 0.25)
+#试着自己粗略命名一下这些亚群，如果你的resolution比较低的化，umap图上的每一团都是一种细胞，那可以自己来命名试试
+new.cluster.ids <- c("Myeloid", "Glioma", "Glioma", "Oligodendrocytes","Glioma", "Tcells", "Pericyte")
+names(new.cluster.ids) <- levels(seu)
+#换成自己注释的细胞为ident
+seu <- RenameIdents(seu, new.cluster.ids)
+#画一幅综合火山图
+jjVolcano(diffData = seu.markers,tile.col = corrplot::COL2('RdBu', 15)[4:10],base_size=20,min.segment.length = 0, box.padding = 0.6,
+          fontface = 'italic',polar = T,col.type = "updown",log2FC.cutoff = 0.5,topGeneN = 3)
