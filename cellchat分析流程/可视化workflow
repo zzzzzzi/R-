@@ -75,3 +75,6 @@ netVisual_individual(cellchat,
 netVisual_aggregate(cellchat, signaling = pathways.show2, layout = "chord",vertex.label.cex = 1)
 #heatmap图
 netVisual_heatmap(cellchat, signaling = pathways.show1, color.heatmap = "Reds")
+#小提琴图
+plotGeneExpression(cellchat, signaling = "SPP1")
+plotGeneExpression(cellchat, signaling = "GALECTIN")
