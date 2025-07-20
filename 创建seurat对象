@@ -1,0 +1,39 @@
+#创建seurat对象并过滤
+#把单细胞样本三个文件命名为barcodes，features,genes，然后根据前缀GSM命名文件，记得按照文件夹顺序
+samples_id <- c("GSM5518630","GSM5518631","GSM5518632","GSM5518638")
+#找到存放文件的上一级工作目录
+data_path <- paste0("GSE182109_grade23/", samples_id)
+#先创建10X对象列表，并按照样本名称命名
+seu_glioma <- sapply(X = data_path, function(x) Read10X(x))
+names(seu_glioma) <- samples_id
+#创建容纳seurat对象的一个空list
+seu_se <- list()
+#都是做质控流程，所有的barcodes前面会添加上样本的名称
+for( i in 1:4){
+  seu_se[[i]] <- CreateSeuratObject(counts = seu_glioma[[i]], project = samples_id[i], min.cells = 3, min.features = 500)
+  seu_se[[i]] <- RenameCells(seu_se[[i]], add.cell.id = samples_id[i])
+}
+#线粒体质控
+for( i in 1:4){
+  seu_se[[i]][["percent.mt"]] <- PercentageFeatureSet(seu_se[[i]], pattern = "^MT-")
+}
+#核糖体质控
+for( i in 1:4){
+  seu_se[[i]][["pecent.ribo"]] <- PercentageFeatureSet(seu_se[[i]], pattern = "^RP[SL]")
+}
+#红细胞质控
+for( i in 1:4){
+  seu_se[[i]][["percent.hb"]] <- PercentageFeatureSet(seu_se[[i]], pattern = "^HB[^(P)]")
+}
+#合并seurat原始对象
+seu_merge <- merge(x = seu_se[[1]], y = c(seu_se[[2]],seu_se[[3]],seu_se[[4]]), project = "seu")
+#根据基因表达数，核糖体，线粒体，红细胞来质控
+selected_c <- WhichCells(seu_merge, expression = nFeature_RNA > 500 & nCount_RNA < 20000)
+seu_filt <- subset(seu_merge, cells = selected_c)
+selected_mito <- WhichCells(seu_filt, expression = percent.mt < 20)
+seu_filt <- subset(seu_filt, cells = selected_mito)
+
+percent_hb <- WhichCells(seu_filt, expression = percent.hb < 0.1)
+seu_filt <- subset(seu_filt, cells = percent_hb)
+#得到用于分析的原始seurat对象
+dim(seu_filt)
