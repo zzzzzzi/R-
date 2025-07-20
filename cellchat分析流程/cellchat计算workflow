@@ -1,0 +1,132 @@
+# ---------------------------------------------------------------------------
+# 前提：你已经有一个经过聚类和基础注释的Seurat对象，我们称之为 aeu.all
+# “经过注释”在这里指的是你知道每个cluster（例如0, 1, 2...）可能对应哪种细胞。
+# 这个信息通常是通过寻找每个cluster的标记基因（Marker Genes）得到的。
+# ---------------------------------------------------------------------------
+
+# === 第1步: 将聚类结果映射为具体的细胞类型名称 ===
+
+# --- 目的 (Why) ---
+# Seurat聚类后，我们得到的是一些数字ID（如0, 1, 2...），这些数字没有生物学意义。
+# 我们需要根据已知的标记基因为这些数字ID赋予一个有意义的、可读的生物学名称
+# （例如 'C0-TAM', 'C1-glioma-DLL3'）。这一整块代码就是在做这个“贴标签”的工作。
+
+# --- 具体操作 (What) ---
+
+# Idents函数用于设置Seurat对象的主要“身份”。这里我们将细胞的身份设置为0.05分辨率下的聚类结果。
+# 这样做可以方便我们后续基于这些cluster ID进行操作。
+# seu.all@meta.data是储存每个细胞元数据的地方，像一张每个细胞的“信息卡”。
+# $RNA_snn_res.0.05是聚类分析在0.05分辨率下储存每个细胞所属cluster ID的列。
+Idents(seu.all) <- seu.all@meta.data$RNA_snn_res.0.05
+
+# 创建一个“字典”或“查找表”(lookup table)，用于存储cluster ID和细胞名称的对应关系。
+# 这是一个data.frame，有两列：ClusterID（数字）和celltype（名称）。
+celltype <- data.frame(ClusterID = 0:6, celltype = 0:6)
+
+# 下面开始填充这个“字典”。
+# 比如，我们通过看marker基因发现cluster 1是表达DLL3的胶质瘤细胞。
+# '%in% c(1)' 用于找到ClusterID为1的行，然后我们把这一行第二列（celltype）的值改为 'C1-glioma-DLL3'。
+celltype[celltype$ClusterID %in% c(1), 2] <- 'C1-glioma-DLL3'
+celltype[celltype$ClusterID %in% c(0), 2] <- 'C0-TAM'
+celltype[celltype$ClusterID %in% c(2), 2] <- 'C2-glioma-SPARCL1'
+celltype[celltype$ClusterID %in% c(5), 2] <- 'C5-endothelial'
+celltype[celltype$ClusterID %in% c(4), 2] <- 'C4-glioma-TOP2A'
+celltype[celltype$ClusterID %in% c(3), 2] <- 'C3-oligodendrocyte'
+celltype[celltype$ClusterID %in% c(6), 2] <- 'C6-lymphocyte'
+
+# 在Seurat对象的主元数据表(meta.data)中，新建一列叫做 'celltype'，并先用 "NA" 填充。
+# 这是一个好习惯，先创建列，再用循环去填充内容。
+seu.all@meta.data$celltype <- "NA"
+
+# 使用一个 for 循环，遍历我们上面创建的 celltype “字典”的每一行。
+for (i in 1:nrow(celltype)) {
+  # 对于“字典”中的每一行(i)，找到Seurat对象中所有属于该cluster的细胞，
+  # which(...)会返回这些细胞在元数据表中的行号（即索引）。
+  # 然后，将这些细胞的 'celltype' 列更新为我们“字典”中对应的细胞名称。
+  seu.all@meta.data[which(seu.all@meta.data$RNA_snn_res.0.05 == celltype$ClusterID[i]), 'celltype'] <- celltype$celltype[i]
+}
+
+# 这是一个非常重要的验证步骤！
+# table() 函数会统计 'celltype' 列中每种细胞类型的数量。
+# 你可以检查输出结果，确保所有细胞都被成功注释，并且数量符合预期。
+table(seu.all@meta.data$celltype)
+
+# === 第2步: 准备CellChat分析所需的数据 ===
+
+# --- 目的 (Why) ---
+# CellChat不能直接使用Seurat对象。我们需要从中提取它需要的两个核心部分：
+# 1. 基因表达数据。
+# 2. 细胞元数据（特别是包含细胞分组信息的列）。
+
+# --- 具体操作 (What) ---
+
+# 提取基因表达矩阵。CellChat推荐使用标准化的、非log转换的数据。
+# 在Seurat对象中，`@assays$RNA@data` 这个槽(slot)通常储存着经过log标准化的数据，
+# CellChat内部会处理这些数据，所以直接使用它是标准做法。
+data.input <- seu.all@assays$RNA@data
+
+# 提取元数据。我们刚刚添加的 'celltype' 列就在这里面。
+meta.data <- seu.all@meta.data
+
+# 将 'celltype' 列转换为因子(factor)类型，并手动指定顺序(levels)。
+# 这是一个非常关键的步骤！它决定了之后CellChat所有可视化图中细胞类型的排列顺序。
+# 如果不设置，默认会按字母顺序排，可能会让图表看起来杂乱。
+meta.data$celltype <- factor(meta.data$celltype,
+                           levels = c("C0-TAM", "C1-glioma-DLL3", "C2-glioma-SPARCL1", "C3-oligodendrocyte", "C4-glioma-TOP2A", "C5-endothelial", "C6-lymphocyte"))
+
+# === 第3步: 创建并运行CellChat对象 ===
+
+# --- 目的 (Why) ---
+# 这是CellChat分析的核心流程。我们将一步步构建对象、加载数据库、然后运行一系列计算，
+# 最终推断出细胞间的通讯网络和信号通路。
+
+# --- 具体操作 (What) ---
+
+# 使用前面准备好的数据，创建CellChat对象。
+# `object = data.input`: 传入基因表达数据。
+# `meta = meta.data`: 传入元数据。
+# `group.by = "celltype"`: 告诉CellChat我们的细胞分组依据是 'celltype' 这一列。
+cellchat <- createCellChat(object = data.input, meta = meta.data, group.by = "celltype")
+
+# 加载CellChat的内置人类配体-受体相互作用数据库。
+# 这个数据库是CellChat分析的基础，它包含了已知的蛋白相互作用信息。
+CellChatDB <- CellChatDB.human
+
+# (可选) 展示数据库中包含哪些信号通路类别。
+showDatabaseCategory(CellChatDB)
+
+# 将选择的数据库（这里是人类的）加载到cellchat对象中。
+CellChatDB.use <- CellChatDB
+cellchat@DB <- CellChatDB.use
+
+# --- 核心计算流程 ---
+
+# 1. 对表达数据进行预处理，筛选出在数据库中有定义的基因。
+#    这样做可以减少不必要的计算量，提高运行效率。
+cellchat <- subsetData(cellchat)
+
+# 2. 识别每个细胞群中过表达的基因。
+cellchat <- identifyOverExpressedGenes(cellchat)
+
+# 3. 基于过表达的基因，识别细胞群之间潜在的、有意义的配体-受体相互作用。
+cellchat <- identifyOverExpressedInteractions(cellchat)
+
+# 4. 计算细胞间的通讯概率。这是最核心的计算步骤。
+#    它会为每个配体-受体对在每对细胞群之间计算一个通讯强度得分。
+#    `raw.use = T` 表示使用我们之前传入的标准化数据进行计算。
+cellchat <- computeCommunProb(cellchat, raw.use = T)
+
+# 5. 过滤掉一些弱的、可能由背景噪音导致的通讯。
+#    `min.cells = 10` 表示一个通讯至少需要有10个细胞表达相关基因才会被保留。
+cellchat <- filterCommunication(cellchat, min.cells = 10)
+
+# 6. 基于单个配体-受体对的通讯结果，推断信号通路级别的通讯。
+#    这能让我们从更高层面（例如"WNT"信号通路）理解细胞互作。
+cellchat <- computeCommunProbPathway(cellchat)
+
+# 7. 聚合计算细胞通讯网络。例如，计算每个细胞群发出和接收的信号总数和总强度。
+cellchat <- aggregateNet(cellchat)
+
+# --- 分析完成 ---
+# 到这里，所有的计算步骤都已完成。
+# 接下来你就可以使用各种CellChat的可视化函数（如 netVisual_circle, netVisual_bubble 等）来展示结果了。
