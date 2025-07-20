@@ -21,3 +21,6 @@ for(j in unique(sctype_scores$cluster)){
   cl_type = sctype_scores[sctype_scores$cluster==j,]; 
   seu@meta.data$customclassif[seu@meta.data$RNA_snn_res.0.05 == j] = as.character(cl_type$type[1])
 }
+#观察自动注释好的细胞
+DimPlot(seu, reduction = "umap",label = TRUE,label.box = TRUE,pt.size = 0.1,label.size = 7,repel = TRUE,group.by = 'customclassif', 
+        cols = c("#A1A9D0","#3AA299","#B883D4","#FFBE7A","#FA7F6F","#2878B5","#96CCCB","#CF0000FF","#3F9250FF","#484860FF","#CBE42A","#FF3D7FFF","#3A488AFF"))  
