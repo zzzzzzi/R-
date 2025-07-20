@@ -1,0 +1,18 @@
+library(HGNChelper)
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/gene_sets_prepare.R")
+source("https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/R/sctype_score_.R")
+db_ = "https://raw.githubusercontent.com/IanevskiAleksandr/sc-type/master/ScTypeDB_full.xlsx";
+#这边的tissue可以是Immune system, Liver, Pancreas, Kidney, Eye, Brain这样的
+tissue = "Brain"
+gs_list = gene_sets_prepare(db_, tissue)
+es.max = sctype_score(scRNAseqData = seu@assays$RNA@scale.data, scaled = TRUE, gs = gs_list$gs_positive, gs2 = gs_list$gs_negative)
+
+cL_resutls = do.call("rbind", lapply(unique(seu@meta.data$RNA_snn_res.0.05), function(cl){
+  es.max.cl = sort(rowSums(es.max[ ,rownames(seu@meta.data[seu@meta.data$RNA_snn_res.0.05==cl, ])]), decreasing = !0)
+  head(data.frame(cluster = cl, type = names(es.max.cl), scores = es.max.cl, ncells = sum(seu@meta.data$RNA_snn_res.0.05==cl)), 10)
+}))
+sctype_scores = cL_resutls %>% group_by(cluster) %>% top_n(n = 1, wt = scores)  
+
+sctype_scores$type[as.numeric(as.character(sctype_scores$scores)) < sctype_scores$ncells/4] = "Unknown"
+#查看自动注释出的结果
+print(sctype_scores[,1:3])
