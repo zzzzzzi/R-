@@ -1,0 +1,8 @@
+#添加的metadata必须是GSM5518630_AAACCCAAGGAGAGTA-1 Patient1这样的
+#metadata的行名必须和seurat对象中每个细胞的名字相同
+#一般来说只要明确这个细胞是来自于哪个样本，这个样本来自于哪个病人，然后把病人的metadata合并到上面
+seu_filt <- AddMetaData(object = seu_filt, metadata = meta)
+#得到病人的patient_id之后，设置为ident，ident就是聚类的默认背景，画umap的时候是默认按ident着色的
+seu_filt <- SetIdent(seu_filt, value = seu_filt@meta.data$patient_id)
+#选出你感兴趣的亚群
+seu_filt_NAomit <- subset(seu_filt, idents= c("h-microglia","GC05","GC01","GC07","GC02","i-microglia","Oligo","Pericytes","GC04","Myeloid","s-mac 1","GC03","AP-microglia","MDSC","CD4 TCells","a-microglia","Endo","GC06","CD8 TCells","TCells","Naiive TCells","BCells","s-mac 2","Proliferating","Tregs","NKCells","DCs"))
